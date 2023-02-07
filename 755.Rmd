@@ -1,0 +1,291 @@
+```{r}
+library(readr)
+ObesityDataSet <- read_csv("ObesityDataSet.csv")
+Data <- ObesityDataSet[, -c(3, 4)]
+```
+
+Observation of the Numerical Variables
+```{r}
+library(psych)
+multi.hist(Data[, c(5,6,9,11,12)],nrow = 3, ncol=2,density=TRUE,freq=FALSE,bcol="lightblue",
+      dcol= c("red","blue"),dlty=c("solid", "dotted"),
+      main=colnames(data)) 
+
+multi.hist(Data[, c(2)],nrow = 1, ncol=2,density=TRUE,freq=FALSE,bcol="lightblue",
+      dcol= c("red","blue"),dlty=c("solid", "dotted"),
+      main=colnames(data)) 
+
+#FAF(11) TUE(12) has positive skew
+```
+```{r}
+library(moments)
+skewness(Data[,  c(2, 5,6,9,11,12 )])
+```
+
+
+```{r}
+library(ggpubr)
+library(moments)
+
+par(mfrow = c(1, 2))
+# Distribution of Age(positive skew)
+ggdensity(Data, x = "Age", fill = "lightgray", title = "Age") +
+  scale_x_continuous(limits = c(-5, 65)) +
+  stat_overlay_normal_density(color = "red", linetype = "dashed")
+
+# Distribution of NCP(negative skew)
+ggdensity(Data, x = "NCP", fill = "lightgray", title = "NCP") +
+  scale_x_continuous(limits = c(-1, 6)) +
+  stat_overlay_normal_density(color = "red", linetype = "dashed")
+
+```
+```{r}
+ObesityDataSet$NCP = log10(max(ObesityDataSet$NCP+1)-ObesityDataSet$NCP)
+ObesityDataSet$Age = log10(ObesityDataSet$Age)
+
+ggdensity(ObesityDataSet, x = "Age", fill = "lightgray", title = "Age") +
+  scale_x_continuous(limits = c(0, 10)) +
+  stat_overlay_normal_density(color = "red", linetype = "dashed")
+ggdensity(ObesityDataSet, x = "NCP", fill = "lightgray", title = "NCP") +
+  scale_x_continuous(limits = c(-.5, 1)) +
+  stat_overlay_normal_density(color = "red", linetype = "dashed")
+
+skewness(ObesityDataSet$Age)
+skewness(ObesityDataSet$NCP)
+```
+
+
+Gower distance
+```{r}
+
+Data$Gender <- factor(Data$Gender)
+Data$family_history_with_overweight <- factor(Data$family_history_with_overweight)
+Data$FAVC <- factor(Data$FAVC)
+Data$SMOKE <- factor(Data$SMOKE)
+Data$SCC <- factor(Data$SCC)
+
+library(cluster)
+gower_df <- daisy(Data,metric = "gower" )
+
+summary(gower_df)
+```
+```{r}
+gower_mat <- as.matrix(gower_df)
+
+# Output most similar pair
+
+ObesityDataSet[
+  which(gower_mat == min(gower_mat[gower_mat != min(gower_mat)]),
+        arr.ind = TRUE)[1, ], ]
+
+#most dissimilar
+ObesityDataSet[
+  which(gower_mat == max(gower_mat[gower_mat != max(gower_mat)]),
+        arr.ind = TRUE)[1, ], ]
+```
+
+Herachical
+```{r}
+#------------ DIVISIVE CLUSTERING ------------#
+divisive.clust <- diana(as.matrix(gower_df), 
+                  diss = TRUE, keep.diss = TRUE)
+plot(divisive.clust, main = "Divisive")
+
+#------------ AGGLOMERATIVE CLUSTERING ------------#
+par(mfrow= c(2, 2))
+
+aggl.clust.c <- hclust(gower_df, method = "complete")
+plot(aggl.clust.c,
+     main = "Agglomerative, Complete Linkage")
+
+aggl.clust.s <- hclust(gower_df, method = "single")
+plot(aggl.clust.s,
+     main = "Agglomerative, Single Linkage")
+
+aggl.clust.a <- hclust(gower_df, method = "average")
+plot(aggl.clust.a,
+     main = "Agglomerative, Average Linkage")
+
+aggl.clust.w <- hclust(gower_df, method = "ward.D")
+plot(aggl.clust.w,
+     main = "Agglomerative, Ward's Method")
+```
+
+Elbow
+```{r}
+# https://towardsdatascience.com/hierarchical-clustering-on-categorical-data-in-r-a27e578f2995 
+
+library(fpc)
+cstats.table <- function(dist, tree, k) {
+clust.assess <- c("cluster.number","n","within.cluster.ss","average.within","average.between",
+                  "wb.ratio","dunn2","avg.silwidth")
+clust.size <- c("cluster.size")
+stats.names <- c()
+row.clust <- c()
+output.stats <- matrix(ncol = k, nrow = length(clust.assess))
+cluster.sizes <- matrix(ncol = k, nrow = k)
+for(i in c(1:k)){
+  row.clust[i] <- paste("Cluster-", i, " size")
+}
+for(i in c(2:k)){
+  stats.names[i] <- paste("Test", i-1)
+  
+  for(j in seq_along(clust.assess)){
+    output.stats[j, i] <- unlist(cluster.stats(d = dist, clustering = cutree(tree, k = i))[clust.assess])[j]
+    
+  }
+  
+  for(d in 1:k) {
+    cluster.sizes[d, i] <- unlist(cluster.stats(d = dist, clustering = cutree(tree, k = i))[clust.size])[d]
+    dim(cluster.sizes[d, i]) <- c(length(cluster.sizes[i]), 1)
+    cluster.sizes[d, i]
+    
+  }
+}
+output.stats.df <- data.frame(output.stats)
+cluster.sizes <- data.frame(cluster.sizes)
+cluster.sizes[is.na(cluster.sizes)] <- 0
+rows.all <- c(clust.assess, row.clust)
+# rownames(output.stats.df) <- clust.assess
+output <- rbind(output.stats.df, cluster.sizes)[ ,-1]
+colnames(output) <- stats.names[2:k]
+rownames(output) <- rows.all
+is.num <- sapply(output, is.numeric)
+output[is.num] <- lapply(output[is.num], round, 2)
+output
+}
+
+
+library(ggplot2)
+# Elbow
+# Divisive clustering
+ggplot(data = data.frame(t(cstats.table(gower_df, divisive.clust, 15))), 
+  aes(x=cluster.number, y=within.cluster.ss)) + 
+  geom_point()+
+  geom_line()+
+  ggtitle("Divisive clustering") +
+  labs(x = "Num.of clusters", y = "Within clusters sum of squares (SS)") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+```
+```{r}
+DivElbCut = cutree(divisive.clust, k = 9)
+table(DivElbCut)
+```
+
+```{r}
+# algo clustering
+ggplot(data = data.frame(t(cstats.table(gower_df, aggl.clust.c, 15))), 
+  aes(x=cluster.number, y=within.cluster.ss)) + 
+  geom_point()+
+  geom_line()+
+  ggtitle("Agglomerative clustering") +
+  labs(x = "Num.of clusters", y = "Within clusters sum of squares (SS)") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+#choose 7
+
+ggplot(data = data.frame(t(cstats.table(gower_df, aggl.clust.w, 15))), 
+  aes(x=cluster.number, y=within.cluster.ss)) + 
+  geom_point()+
+  geom_line()+
+  ggtitle("Agglomerative clustering(Ward's Method)") +
+  labs(x = "Num.of clusters", y = "Within clusters sum of squares (SS)") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+```{r}
+AggElbCutc = cutree(aggl.clust.c, k = 7)
+table(AggElbCutc)
+
+AggElbCutw = cutree(aggl.clust.w, k = 7)
+table(AggElbCutw)
+
+table(AggElbCutw, Data$NObeyesdad)
+```
+Silhouette
+```{r}
+
+
+ggplot(data = data.frame(t(cstats.table(gower_df, divisive.clust, 15))), 
+  aes(x=cluster.number, y=avg.silwidth)) + 
+  geom_point()+
+  geom_line()+
+  ggtitle("Divisive clustering") +
+  labs(x = "Num.of clusters", y = "Average silhouette width") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+ggplot(data = data.frame(t(cstats.table(gower_df, aggl.clust.c, 15))), 
+  aes(x=cluster.number, y=avg.silwidth)) + 
+  geom_point()+
+  geom_line()+
+  ggtitle("Agglomerative clustering") +
+  labs(x = "Num.of clusters", y = "Average silhouette width") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+ggplot(data = data.frame(t(cstats.table(gower_df, aggl.clust.w, 15))), 
+  aes(x=cluster.number, y=avg.silwidth)) + 
+  geom_point()+
+  geom_line()+
+  ggtitle("Agglomerative clustering") +
+  labs(x = "Num.of clusters", y = "Average silhouette width") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+PAM
+```{r}
+
+#silhouette
+silhouette <- c()
+silhouette = c(silhouette, NA)
+for(i in 3:10){
+  pam_clusters = pam(as.matrix(gower_df),
+                 diss = TRUE,
+                 k = i)
+  silhouette = c(silhouette ,pam_clusters$silinfo$avg.width)
+}
+plot(2:10, silhouette,
+     xlab = "Clusters",
+     ylab = "Silhouette Width")
+lines(2:10, silhouette)
+# 5
+```
+
+```{r}
+pam_german = pam(gower_df, diss = TRUE, k = 5)
+Data[pam_german$medoids, ]
+```
+```{r}
+table(pam_german$clustering, ObesityDataSet$NObeyesdad)
+
+library(dplyr)
+pam_result = Data %>%
+  mutate(cluster = pam_german$clustering) %>%
+  group_by(cluster) %>%
+  do(the_summary = summary(.))
+
+pam_result$the_summary
+```
+
+```{r}
+table(ObesityDataSet$Gender, Data$NObeyesdad)
+```
+
+```{r}
+library(Rtsne)
+library(ggplot2)
+tsne_object <- Rtsne(gower_df, is_distance = TRUE)
+
+tsne_df <- tsne_object$Y %>%
+  data.frame() %>%
+  setNames(c("X", "Y")) %>%
+  mutate(cluster = factor(pam_german$clustering))
+ggplot(aes(x = X, y = Y), data = tsne_df) +
+  geom_point(aes(color = cluster))
+
+#t-SNE has helped us visualize multi-dimensional data into a simple two-dimensional plot. Although the clusters seem to have some overlap, they are pretty distinctive overall
+
+#https://stats.stackexchange.com/questions/331745/how-to-interpret-t-sne-plot 
+```
